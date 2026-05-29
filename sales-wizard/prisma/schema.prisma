@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LeadStatus {
+  NEW
+  QUALIFYING
+  QUALIFIED
+  CONTACTED
+  CLOSED
+  LOST
+}
+
+enum ScoreBand {
+  HOT
+  WARM
+  COLD
+}
+
+enum PropertyType {
+  LAND
+  APARTMENT
+  DUPLEX
+  BUNGALOW
+  COMMERCIAL
+}
+
+model Lead {
+  id           String      @id @default(cuid())
+  name         String?
+  phone        String?
+  email        String?
+  budgetMin    Float?
+  budgetMax    Float?
+  location     String?
+  propertyType PropertyType?
+  timeline     String?
+  status       LeadStatus  @default(NEW)
+  score        ScoreBand?
+  scoreReason  String?
+  agentId      String?
+  agent        Agent?      @relation(fields: [agentId], references: [id])
+  conversations Conversation[]
+  followUpLogs FollowUpLog[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([status])
+  @@index([score])
+  @@index([createdAt])
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  leadId    String?
+  lead      Lead?     @relation(fields: [leadId], references: [id])
+  channel   String    @default("web")
+  messages  Message[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([leadId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+}
+
+model Agent {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  phone     String?
+  active    Boolean  @default(true)
+  leads     Lead[]
+  createdAt DateTime @default(now())
+}
+
+model Property {
+  id          String       @id @default(cuid())
+  title       String
+  location    String
+  type        PropertyType
+  priceMin    Float
+  priceMax    Float
+  bedrooms    Int?
+  description String
+  available   Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+
+  @@index([location])
+  @@index([type])
+}
+
+model FollowUpLog {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id])
+  channel   String
+  template  String
+  body      String
+  status    String   @default("pending")
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+}
