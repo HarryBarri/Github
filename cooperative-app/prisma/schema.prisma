@@ -1,0 +1,673 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MemberStatus {
+  pending
+  active
+  suspended
+  exited
+}
+
+enum Gender {
+  male
+  female
+  other
+}
+
+enum UserRole {
+  member
+  loan_officer
+  treasurer
+  secretary
+  president
+  superadmin
+}
+
+enum KycDocumentType {
+  national_id
+  voters_card
+  passport
+  drivers_license
+  utility_bill
+  passport_photo
+}
+
+enum KycStatus {
+  pending
+  approved
+  rejected
+}
+
+enum SavingsAccountType {
+  regular
+  special
+  children
+  target
+}
+
+enum SavingsAccountStatus {
+  active
+  dormant
+  closed
+}
+
+enum TransactionType {
+  deposit
+  withdrawal
+  interest_credit
+  dividend_credit
+  levy_debit
+  loan_deduction
+  reversal
+}
+
+enum Direction {
+  credit
+  debit
+}
+
+enum PaymentMethod {
+  cash
+  bank_transfer
+  standing_order
+  mobile_money
+  salary_deduction
+  savings_deduction
+}
+
+enum InterestType {
+  flat
+  reducing_balance
+}
+
+enum LoanApplicationStatus {
+  draft
+  submitted
+  under_review
+  approved
+  rejected
+  disbursed
+  withdrawn
+}
+
+enum GuarantorStatus {
+  pending
+  accepted
+  rejected
+}
+
+enum LoanStatus {
+  active
+  completed
+  defaulted
+  written_off
+}
+
+enum LevyType {
+  fixed
+  percentage
+}
+
+enum LevyAppliesTo {
+  all_members
+  active_members
+  custom
+}
+
+enum RecurrenceInterval {
+  monthly
+  quarterly
+  annually
+}
+
+enum LevyAssignmentStatus {
+  unpaid
+  partial
+  paid
+  waived
+}
+
+enum MeetingType {
+  agm
+  egm
+  board
+  committee
+  general
+}
+
+enum MeetingStatus {
+  scheduled
+  ongoing
+  completed
+  cancelled
+}
+
+enum DividendStatus {
+  draft
+  approved
+  disbursed
+}
+
+enum DividendAllocationStatus {
+  pending
+  credited
+  withdrawn
+}
+
+enum NotificationType {
+  loan_status
+  payment_reminder
+  meeting_notice
+  general
+  levy_notice
+}
+
+model Member {
+  id                    String       @id @default(uuid())
+  memberNumber          String       @unique @map("member_number")
+  firstName             String       @map("first_name")
+  lastName              String       @map("last_name")
+  middleName            String?      @map("middle_name")
+  email                 String?      @unique
+  phone                 String
+  dateOfBirth           DateTime?    @map("date_of_birth") @db.Date
+  gender                Gender?
+  occupation            String?
+  employer              String?
+  bvn                   String?      @unique
+  nin                   String?      @unique
+  addressStreet         String?      @map("address_street")
+  addressCity           String?      @map("address_city")
+  addressState          String?      @map("address_state")
+  addressLga            String?      @map("address_lga")
+  nextOfKinName         String?      @map("next_of_kin_name")
+  nextOfKinPhone        String?      @map("next_of_kin_phone")
+  nextOfKinRelationship String?      @map("next_of_kin_relationship")
+  status                MemberStatus @default(pending)
+  membershipDate        DateTime?    @map("membership_date") @db.Date
+  exitDate              DateTime?    @map("exit_date") @db.Date
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime?    @updatedAt @map("updated_at")
+  deletedAt             DateTime?    @map("deleted_at")
+
+  user                User?
+  kycDocuments        KycDocument[]
+  savingsAccount      SavingsAccount?
+  shareCapital        ShareCapital[]
+  shareTransactions   ShareTransaction[]
+  loanApplications    LoanApplication[]
+  loans               Loan[]
+  guaranteedLoans     LoanGuarantor[]
+  levyAssignments     LevyAssignment[]
+  meetingAttendances  MeetingAttendance[]
+  dividendAllocations DividendAllocation[]
+
+  @@map("members")
+}
+
+model User {
+  id                   String    @id @default(uuid())
+  memberId             String?   @unique @map("member_id")
+  email                String    @unique
+  hashedPassword       String    @map("hashed_password")
+  role                 UserRole  @default(member)
+  isActive             Boolean   @default(true) @map("is_active")
+  lastLoginAt          DateTime? @map("last_login_at")
+  passwordResetToken   String?   @map("password_reset_token")
+  passwordResetExpires DateTime? @map("password_reset_expires")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime? @updatedAt @map("updated_at")
+
+  member              Member?              @relation(fields: [memberId], references: [id])
+  kycReviews          KycDocument[]        @relation("KycReviewer")
+  savingsTransactions SavingsTransaction[] @relation("ProcessedBy")
+  shareTransactions   ShareTransaction[]
+  loanReviews         LoanApplication[]    @relation("LoanReviewer")
+  loanApprovals       LoanApplication[]    @relation("LoanApprover")
+  loanDisbursements   LoanApplication[]    @relation("LoanDisburser")
+  loanRepayments      LoanRepayment[]
+  leviesCreated       Levy[]
+  levyPayments        LevyPayment[]
+  levyWaivers         LevyAssignment[]
+  meetingsCreated     Meeting[]
+  attendanceCheckedIn MeetingAttendance[]  @relation("CheckedInBy")
+  dividendApprovals   Dividend[]           @relation("DividendApprover")
+  settingsUpdates     CooperativeSetting[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+
+  @@map("users")
+}
+
+model KycDocument {
+  id           String          @id @default(uuid())
+  memberId     String          @map("member_id")
+  documentType KycDocumentType @map("document_type")
+  fileUrl      String          @map("file_url")
+  fileName     String?         @map("file_name")
+  fileSizeBytes Int?            @map("file_size_bytes")
+  mimeType     String?         @map("mime_type")
+  status       KycStatus       @default(pending)
+  reviewedBy   String?         @map("reviewed_by")
+  reviewedAt   DateTime?       @map("reviewed_at")
+  reviewNotes  String?         @map("review_notes")
+  uploadedAt   DateTime        @default(now()) @map("uploaded_at")
+
+  member   Member @relation(fields: [memberId], references: [id])
+  reviewer User?  @relation("KycReviewer", fields: [reviewedBy], references: [id])
+
+  @@map("kyc_documents")
+}
+
+model SavingsAccount {
+  id                 String               @id @default(uuid())
+  memberId           String               @unique @map("member_id")
+  accountNumber      String               @unique @map("account_number")
+  accountType        SavingsAccountType   @default(regular) @map("account_type")
+  balanceKobo        BigInt               @default(0) @map("balance_kobo")
+  minimumBalanceKobo BigInt               @default(0) @map("minimum_balance_kobo")
+  interestRatePct    Decimal              @default(0.00) @map("interest_rate_pct") @db.Decimal(5, 2)
+  status             SavingsAccountStatus @default(active)
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime?            @updatedAt @map("updated_at")
+
+  member       Member               @relation(fields: [memberId], references: [id])
+  transactions SavingsTransaction[]
+
+  @@map("savings_accounts")
+}
+
+model SavingsTransaction {
+  id               String          @id @default(uuid())
+  accountId        String          @map("account_id")
+  transactionType  TransactionType @map("transaction_type")
+  amountKobo       BigInt          @map("amount_kobo")
+  direction        Direction
+  balanceAfterKobo BigInt          @map("balance_after_kobo")
+  referenceNumber  String          @unique @map("reference_number")
+  description      String?
+  paymentMethod    PaymentMethod?  @map("payment_method")
+  paymentProofUrl  String?         @map("payment_proof_url")
+  processedBy      String          @map("processed_by")
+  transactionDate  DateTime        @map("transaction_date") @db.Date
+  createdAt        DateTime        @default(now()) @map("created_at")
+  reversedById     String?         @map("reversed_by_id")
+
+  account    SavingsAccount      @relation(fields: [accountId], references: [id])
+  processor  User                @relation("ProcessedBy", fields: [processedBy], references: [id])
+  reversedBy SavingsTransaction?  @relation("Reversal", fields: [reversedById], references: [id])
+  reversals  SavingsTransaction[] @relation("Reversal")
+
+  @@index([accountId])
+  @@index([transactionDate])
+  @@map("savings_transactions")
+}
+
+model LoanProduct {
+  id                  String       @id @default(uuid())
+  name                String
+  description         String?
+  minAmountKobo       BigInt       @map("min_amount_kobo")
+  maxAmountKobo       BigInt       @map("max_amount_kobo")
+  interestRatePct     Decimal      @map("interest_rate_pct") @db.Decimal(5, 2)
+  interestType        InterestType @map("interest_type")
+  maxTenureMonths     Int          @map("max_tenure_months")
+  minTenureMonths     Int          @default(1) @map("min_tenure_months")
+  processingFeePct    Decimal      @default(0) @map("processing_fee_pct") @db.Decimal(5, 2)
+  insuranceFeePct     Decimal      @default(0) @map("insurance_fee_pct") @db.Decimal(5, 2)
+  guarantorsRequired  Int          @default(2) @map("guarantors_required")
+  collateralRequired  Boolean      @default(false) @map("collateral_required")
+  minMembershipMonths Int          @default(6) @map("min_membership_months")
+  savingsMultiplier   Decimal      @default(2.0) @map("savings_multiplier") @db.Decimal(5, 2)
+  isActive            Boolean      @default(true) @map("is_active")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime?    @updatedAt @map("updated_at")
+
+  applications LoanApplication[]
+
+  @@map("loan_products")
+}
+
+model LoanApplication {
+  id                  String                @id @default(uuid())
+  applicationNumber   String                @unique @map("application_number")
+  memberId            String                @map("member_id")
+  loanProductId       String                @map("loan_product_id")
+  requestedAmountKobo BigInt                @map("requested_amount_kobo")
+  approvedAmountKobo  BigInt?               @map("approved_amount_kobo")
+  tenureMonths        Int                   @map("tenure_months")
+  purpose             String
+  status              LoanApplicationStatus @default(draft)
+  submittedAt         DateTime?             @map("submitted_at")
+  reviewedBy          String?               @map("reviewed_by")
+  reviewedAt          DateTime?             @map("reviewed_at")
+  reviewNotes         String?               @map("review_notes")
+  approvedBy          String?               @map("approved_by")
+  approvedAt          DateTime?             @map("approved_at")
+  approvalNotes       String?               @map("approval_notes")
+  rejectedAt          DateTime?             @map("rejected_at")
+  rejectionReason     String?               @map("rejection_reason")
+  disbursedAt         DateTime?             @map("disbursed_at")
+  disbursedBy         String?               @map("disbursed_by")
+  disbursementMethod  PaymentMethod?        @map("disbursement_method")
+  disbursementRef     String?               @map("disbursement_ref")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime?             @updatedAt @map("updated_at")
+
+  member     Member          @relation(fields: [memberId], references: [id])
+  product    LoanProduct     @relation(fields: [loanProductId], references: [id])
+  reviewer   User?           @relation("LoanReviewer", fields: [reviewedBy], references: [id])
+  approver   User?           @relation("LoanApprover", fields: [approvedBy], references: [id])
+  disburser  User?           @relation("LoanDisburser", fields: [disbursedBy], references: [id])
+  guarantors LoanGuarantor[]
+  loan       Loan?
+
+  @@index([memberId])
+  @@index([status])
+  @@map("loan_applications")
+}
+
+model LoanGuarantor {
+  id                String          @id @default(uuid())
+  loanApplicationId String          @map("loan_application_id")
+  guarantorMemberId String          @map("guarantor_member_id")
+  status            GuarantorStatus @default(pending)
+  responseAt        DateTime?       @map("response_at")
+  notes             String?
+
+  application LoanApplication @relation(fields: [loanApplicationId], references: [id])
+  guarantor   Member          @relation(fields: [guarantorMemberId], references: [id])
+
+  @@unique([loanApplicationId, guarantorMemberId])
+  @@map("loan_guarantors")
+}
+
+model Loan {
+  id                String     @id @default(uuid())
+  loanApplicationId String     @unique @map("loan_application_id")
+  memberId          String     @map("member_id")
+  principalKobo     BigInt     @map("principal_kobo")
+  interestKobo      BigInt     @map("interest_kobo")
+  processingFeeKobo BigInt     @default(0) @map("processing_fee_kobo")
+  insuranceFeeKobo  BigInt     @default(0) @map("insurance_fee_kobo")
+  totalPayableKobo  BigInt     @map("total_payable_kobo")
+  amountPaidKobo    BigInt     @default(0) @map("amount_paid_kobo")
+  disbursementDate  DateTime   @map("disbursement_date") @db.Date
+  maturityDate      DateTime   @map("maturity_date") @db.Date
+  status            LoanStatus @default(active)
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime?  @updatedAt @map("updated_at")
+
+  application LoanApplication         @relation(fields: [loanApplicationId], references: [id])
+  member      Member                  @relation(fields: [memberId], references: [id])
+  schedule    LoanRepaymentSchedule[]
+  repayments  LoanRepayment[]
+
+  @@index([memberId])
+  @@index([status])
+  @@map("loans")
+}
+
+model LoanRepaymentSchedule {
+  id                String    @id @default(uuid())
+  loanId            String    @map("loan_id")
+  installmentNumber Int       @map("installment_number")
+  dueDate           DateTime  @map("due_date") @db.Date
+  principalDueKobo  BigInt    @map("principal_due_kobo")
+  interestDueKobo   BigInt    @map("interest_due_kobo")
+  totalDueKobo      BigInt    @map("total_due_kobo")
+  amountPaidKobo    BigInt    @default(0) @map("amount_paid_kobo")
+  isPaid            Boolean   @default(false) @map("is_paid")
+  paidAt            DateTime? @map("paid_at")
+
+  loan       Loan            @relation(fields: [loanId], references: [id])
+  repayments LoanRepayment[]
+
+  @@unique([loanId, installmentNumber])
+  @@index([dueDate])
+  @@map("loan_repayment_schedule")
+}
+
+model LoanRepayment {
+  id              String        @id @default(uuid())
+  loanId          String        @map("loan_id")
+  scheduleId      String?       @map("schedule_id")
+  amountKobo      BigInt        @map("amount_kobo")
+  paymentDate     DateTime      @map("payment_date") @db.Date
+  paymentMethod   PaymentMethod @map("payment_method")
+  referenceNumber String        @unique @map("reference_number")
+  processedBy     String        @map("processed_by")
+  notes           String?
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  loan      Loan                   @relation(fields: [loanId], references: [id])
+  schedule  LoanRepaymentSchedule? @relation(fields: [scheduleId], references: [id])
+  processor User                   @relation(fields: [processedBy], references: [id])
+
+  @@index([loanId])
+  @@map("loan_repayments")
+}
+
+model ShareCapital {
+  id             String    @id @default(uuid())
+  memberId       String    @map("member_id")
+  sharesOwned    Int       @default(0) @map("shares_owned")
+  shareValueKobo BigInt    @map("share_value_kobo")
+  acquiredDate   DateTime  @map("acquired_date") @db.Date
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime? @updatedAt @map("updated_at")
+
+  member Member @relation(fields: [memberId], references: [id])
+
+  @@index([memberId])
+  @@map("share_capital")
+}
+
+model ShareTransaction {
+  id                String    @id @default(uuid())
+  memberId          String    @map("member_id")
+  transactionType   String    @map("transaction_type")
+  sharesQuantity    Int       @map("shares_quantity")
+  pricePerShareKobo BigInt    @map("price_per_share_kobo")
+  totalAmountKobo   BigInt    @map("total_amount_kobo")
+  referenceNumber   String?   @unique @map("reference_number")
+  processedBy       String    @map("processed_by")
+  transactionDate   DateTime  @map("transaction_date") @db.Date
+  notes             String?
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  member    Member @relation(fields: [memberId], references: [id])
+  processor User   @relation(fields: [processedBy], references: [id])
+
+  @@index([memberId])
+  @@map("share_transactions")
+}
+
+model Levy {
+  id                 String              @id @default(uuid())
+  name               String
+  description        String?
+  amountKobo         BigInt              @map("amount_kobo")
+  levyType           LevyType            @map("levy_type")
+  appliesTo          LevyAppliesTo       @map("applies_to")
+  dueDate            DateTime?           @map("due_date") @db.Date
+  penaltyRatePct     Decimal             @default(0) @map("penalty_rate_pct") @db.Decimal(5, 2)
+  isRecurring        Boolean             @default(false) @map("is_recurring")
+  recurrenceInterval RecurrenceInterval? @map("recurrence_interval")
+  createdBy          String              @map("created_by")
+  isActive           Boolean             @default(true) @map("is_active")
+  createdAt          DateTime            @default(now()) @map("created_at")
+
+  creator     User             @relation(fields: [createdBy], references: [id])
+  assignments LevyAssignment[]
+
+  @@map("levies")
+}
+
+model LevyAssignment {
+  id             String               @id @default(uuid())
+  levyId         String               @map("levy_id")
+  memberId       String               @map("member_id")
+  amountDueKobo  BigInt               @map("amount_due_kobo")
+  amountPaidKobo BigInt               @default(0) @map("amount_paid_kobo")
+  status         LevyAssignmentStatus @default(unpaid)
+  waivedBy       String?              @map("waived_by")
+  waivedAt       DateTime?            @map("waived_at")
+  waiverReason   String?              @map("waiver_reason")
+  dueDate        DateTime?            @map("due_date") @db.Date
+
+  levy     Levy          @relation(fields: [levyId], references: [id])
+  member   Member        @relation(fields: [memberId], references: [id])
+  waiver   User?         @relation(fields: [waivedBy], references: [id])
+  payments LevyPayment[]
+
+  @@unique([levyId, memberId])
+  @@map("levy_assignments")
+}
+
+model LevyPayment {
+  id               String        @id @default(uuid())
+  levyAssignmentId String        @map("levy_assignment_id")
+  amountKobo       BigInt        @map("amount_kobo")
+  paymentDate      DateTime      @map("payment_date") @db.Date
+  paymentMethod    PaymentMethod @map("payment_method")
+  referenceNumber  String        @unique @map("reference_number")
+  processedBy      String        @map("processed_by")
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  assignment LevyAssignment @relation(fields: [levyAssignmentId], references: [id])
+  processor  User           @relation(fields: [processedBy], references: [id])
+
+  @@map("levy_payments")
+}
+
+model Meeting {
+  id               String        @id @default(uuid())
+  title            String
+  meetingType      MeetingType   @map("meeting_type")
+  description      String?
+  scheduledDate    DateTime      @map("scheduled_date")
+  venue            String
+  agenda           String?
+  status           MeetingStatus @default(scheduled)
+  minutesUrl       String?       @map("minutes_url")
+  quorumRequired   Int?          @map("quorum_required")
+  actualAttendance Int?          @map("actual_attendance")
+  createdBy        String        @map("created_by")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime?     @updatedAt @map("updated_at")
+
+  creator    User                @relation(fields: [createdBy], references: [id])
+  attendance MeetingAttendance[]
+
+  @@map("meetings")
+}
+
+model MeetingAttendance {
+  id          String    @id @default(uuid())
+  meetingId   String    @map("meeting_id")
+  memberId    String    @map("member_id")
+  attended    Boolean   @default(false)
+  proxyFor    String?   @map("proxy_for")
+  checkedInAt DateTime? @map("checked_in_at")
+  checkedInBy String?   @map("checked_in_by")
+
+  meeting   Meeting @relation(fields: [meetingId], references: [id])
+  member    Member  @relation(fields: [memberId], references: [id])
+  checkInBy User?   @relation("CheckedInBy", fields: [checkedInBy], references: [id])
+
+  @@unique([meetingId, memberId])
+  @@map("meeting_attendance")
+}
+
+model Dividend {
+  id               String         @id @default(uuid())
+  financialYear    Int            @unique @map("financial_year")
+  declarationDate  DateTime       @map("declaration_date") @db.Date
+  totalProfitKobo  BigInt         @map("total_profit_kobo")
+  dividendFundKobo BigInt         @map("dividend_fund_kobo")
+  dividendRatePct  Decimal?       @map("dividend_rate_pct") @db.Decimal(8, 4)
+  status           DividendStatus @default(draft)
+  approvedBy       String?        @map("approved_by")
+  approvedAt       DateTime?      @map("approved_at")
+  disbursedAt      DateTime?      @map("disbursed_at")
+  notes            String?
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  approver    User?                @relation("DividendApprover", fields: [approvedBy], references: [id])
+  allocations DividendAllocation[]
+
+  @@map("dividends")
+}
+
+model DividendAllocation {
+  id                   String                   @id @default(uuid())
+  dividendId           String                   @map("dividend_id")
+  memberId             String                   @map("member_id")
+  sharesHeld           Int                      @map("shares_held")
+  savingsBalanceKobo   BigInt                   @map("savings_balance_kobo")
+  allocationAmountKobo BigInt                   @map("allocation_amount_kobo")
+  status               DividendAllocationStatus @default(pending)
+  creditedAt           DateTime?                @map("credited_at")
+
+  dividend Dividend @relation(fields: [dividendId], references: [id])
+  member   Member   @relation(fields: [memberId], references: [id])
+
+  @@unique([dividendId, memberId])
+  @@map("dividend_allocations")
+}
+
+model CooperativeSetting {
+  id          String    @id @default(uuid())
+  key         String    @unique
+  value       String
+  description String?
+  updatedBy   String?   @map("updated_by")
+  updatedAt   DateTime  @default(now()) @map("updated_at")
+
+  updater User? @relation(fields: [updatedBy], references: [id])
+
+  @@map("cooperative_settings")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  title     String
+  message   String
+  type      NotificationType
+  isRead    Boolean          @default(false) @map("is_read")
+  readAt    DateTime?        @map("read_at")
+  actionUrl String?          @map("action_url")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  oldValues  Json?    @map("old_values")
+  newValues  Json?    @map("new_values")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
