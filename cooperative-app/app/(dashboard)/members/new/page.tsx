@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { FormField, Input, Select, Textarea, Button } from "@/components/shared/FormField";
+import { FormField, Input, Select, Button } from "@/components/shared/FormField";
 import { NIGERIAN_STATES } from "@/lib/utils";
+import { localDb } from "@/lib/local-db";
 
 export default function NewMemberPage() {
   const router = useRouter();
@@ -23,28 +24,38 @@ export default function NewMemberPage() {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
-  async function submit() {
+  function submit() {
+    if (!form.firstName || !form.lastName || !form.phone) {
+      setError("First name, last name and phone are required.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          gender: form.gender || undefined,
-          email: form.email || undefined,
-          dateOfBirth: form.dateOfBirth || undefined,
-          bvn: form.bvn || undefined,
-          nin: form.nin || undefined,
-        }),
+      const member = localDb.members.createMember({
+        firstName: form.firstName,
+        lastName: form.lastName,
+        middleName: form.middleName || undefined,
+        email: form.email || undefined,
+        phone: form.phone,
+        dateOfBirth: form.dateOfBirth || undefined,
+        gender: form.gender || undefined,
+        occupation: form.occupation || undefined,
+        employer: form.employer || undefined,
+        bvn: form.bvn || undefined,
+        nin: form.nin || undefined,
+        addressStreet: form.addressStreet || undefined,
+        addressCity: form.addressCity || undefined,
+        addressState: form.addressState || undefined,
+        addressLga: form.addressLga || undefined,
+        nextOfKinName: form.nextOfKinName || undefined,
+        nextOfKinPhone: form.nextOfKinPhone || undefined,
+        nextOfKinRelationship: form.nextOfKinRelationship || undefined,
+        deletedAt: null,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.formErrors?.[0] ?? data.error ?? "Failed");
-      router.push(`/dashboard/members/${data.member.id}`);
+      router.push(`/dashboard/members/${member.id}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "An error occurred");
-    } finally {
       setLoading(false);
     }
   }
@@ -53,7 +64,6 @@ export default function NewMemberPage() {
     <div className="max-w-2xl mx-auto">
       <PageHeader title="Add New Member" description="Step-by-step member onboarding" />
 
-      {/* Step indicator */}
       <div className="flex gap-2 mb-8">
         {["Personal Info", "Address", "Next of Kin"].map((s, i) => (
           <div key={s} className="flex items-center gap-2">

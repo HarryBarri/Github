@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import type { UserRole } from "@prisma/client";
+import { logout } from "@/lib/auth-local";
+
+type UserRole = "member" | "loan_officer" | "treasurer" | "secretary" | "president" | "superadmin";
 
 interface NavItem {
   label: string;
@@ -34,16 +36,23 @@ const ROLE_RANK: Record<UserRole, number> = {
 };
 
 interface SidebarProps {
-  role: UserRole;
+  role: string;
   memberName: string;
 }
 
 export function Sidebar({ role, memberName }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const userRole = (role as UserRole) in ROLE_RANK ? (role as UserRole) : "member";
 
   const visibleItems = NAV_ITEMS.filter(
-    (item) => ROLE_RANK[role] >= ROLE_RANK[item.minRole]
+    (item) => ROLE_RANK[userRole] >= ROLE_RANK[item.minRole]
   );
+
+  function handleSignOut() {
+    logout();
+    router.push("/login");
+  }
 
   return (
     <aside className="w-64 bg-green-800 text-white flex flex-col h-full fixed inset-y-0 left-0 z-30">
@@ -69,14 +78,12 @@ export function Sidebar({ role, memberName }: SidebarProps) {
         ))}
       </nav>
       <div className="px-4 py-4 border-t border-green-700">
-        <form action="/api/auth/signout" method="POST">
-          <button
-            type="submit"
-            className="w-full text-left text-sm text-green-300 hover:text-white transition"
-          >
-            Sign out
-          </button>
-        </form>
+        <button
+          onClick={handleSignOut}
+          className="w-full text-left text-sm text-green-300 hover:text-white transition"
+        >
+          Sign out
+        </button>
       </div>
     </aside>
   );

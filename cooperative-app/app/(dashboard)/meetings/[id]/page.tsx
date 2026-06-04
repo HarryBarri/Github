@@ -1,24 +1,36 @@
-import { auth } from "@/lib/auth";
-import { redirect, notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { localDb, type LocalMeeting, type LocalMeetingAttendance } from "@/lib/local-db";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import Link from "next/link";
 
-export default async function MeetingDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session) redirect("/login");
+type AttendanceWithMember = LocalMeetingAttendance & { memberName: string; memberNumber: string };
 
-  const { id } = await params;
-  const meeting = await prisma.meeting.findUnique({
-    where: { id },
-    include: {
-      attendance: {
-        include: { member: { select: { firstName: true, lastName: true, memberNumber: true } } },
-      },
-    },
-  });
-  if (!meeting) notFound();
+export default function MeetingDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const [meeting, setMeeting] = useState<LocalMeeting | null>(null);
+  const [attendance, setAttendance] = useState<AttendanceWithMember[]>([]);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    localDb.init();
+    const m = localDb.meetings.findUnique(id);
+    if (!m) { setNotFound(true); return; }
+    setMeeting(m);
+
+    const records = localDb.meetingAttendance.findMany({ meetingId: id } as never);
+    const members = localDb.members.all();
+    setAttendance(records.map(a => {
+      const member = members.find(mm => mm.id === a.memberId);
+      return { ...a, memberName: member ? `${member.firstName} ${member.lastName}` : "Unknown", memberNumber: member?.memberNumber ?? "" };
+    }));
+  }, [id]);
+
+  if (notFound) return <div className="text-gray-500 p-6">Meeting not found.</div>;
+  if (!meeting) return <div className="p-6 text-gray-400">Loading…</div>;
 
   return (
     <div>
@@ -30,7 +42,7 @@ export default async function MeetingDetailPage({ params }: { params: Promise<{ 
           { label: "Type", value: meeting.meetingType.toUpperCase() },
           { label: "Date", value: new Date(meeting.scheduledDate).toLocaleString("en-NG") },
           { label: "Venue", value: meeting.venue },
-          { label: "Attendance", value: String(meeting.attendance.length) + (meeting.quorumRequired ? ` / ${meeting.quorumRequired} quorum` : "") },
+          { label: "Attendance", value: String(attendance.length) + (meeting.quorumRequired ? ` / ${meeting.quorumRequired} quorum` : "") },
         ].map(k => (
           <div key={k.label} className="bg-white rounded-xl border border-gray-200 p-5">
             <p className="text-xs text-gray-400 uppercase">{k.label}</p>
@@ -47,8 +59,8 @@ export default async function MeetingDetailPage({ params }: { params: Promise<{ 
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 className="font-semibold text-gray-700 mb-3">Attendance Register ({meeting.attendance.length})</h3>
-        {meeting.attendance.length === 0 ? (
+        <h3 className="font-semibold text-gray-700 mb-3">Attendance Register ({attendance.length})</h3>
+        {attendance.length === 0 ? (
           <p className="text-gray-400 text-sm py-4 text-center">No attendance recorded yet.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -59,10 +71,10 @@ export default async function MeetingDetailPage({ params }: { params: Promise<{ 
                 ))}
               </tr></thead>
               <tbody className="divide-y divide-gray-100">
-                {meeting.attendance.map(a => (
+                {attendance.map(a => (
                   <tr key={a.id}>
-                    <td className="px-4 py-3 font-medium text-gray-800">{a.member.firstName} {a.member.lastName}</td>
-                    <td className="px-4 py-3 text-gray-500">{a.member.memberNumber}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800">{a.memberName}</td>
+                    <td className="px-4 py-3 text-gray-500">{a.memberNumber}</td>
                     <td className="px-4 py-3">{a.checkedInAt ? new Date(a.checkedInAt).toLocaleTimeString("en-NG") : "—"}</td>
                     <td className="px-4 py-3">{a.attended ? "Yes" : "No"}</td>
                   </tr>

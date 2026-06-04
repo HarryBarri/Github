@@ -1,45 +1,88 @@
-import { auth } from "@/lib/auth";
-import { redirect, notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { getSession } from "@/lib/auth-local";
+import { localDb, type LocalLoanApplication, type LocalLoanProduct, type LocalLoan, type LocalLoanSchedule, type LocalRepayment } from "@/lib/local-db";
+import { formatNGN } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { formatNGN } from "@/lib/utils";
 import Link from "next/link";
 import { LoanActions } from "./LoanActions";
 
-export default async function LoanDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
+interface DetailData {
+  app: LocalLoanApplication & { memberName: string; memberNumber: string; memberId: string };
+  product: LocalLoanProduct;
+  loan: (LocalLoan & { schedule: LocalLoanSchedule[]; repayments: LocalRepayment[] }) | null;
+}
+
+function Row({ label, value, className, bold, extra }: {
+  label: string; value: string; className?: string; bold?: boolean; extra?: React.ReactNode;
 }) {
-  const session = await auth();
-  if (!session) redirect("/login");
+  return (
+    <div className="flex justify-between">
+      <span className="text-gray-500">{label}</span>
+      <span className={`${bold ? "font-bold" : "font-medium"} ${className ?? "text-gray-800"}`}>
+        {extra ?? value}
+      </span>
+    </div>
+  );
+}
 
-  const { id } = await params;
-  const role = session.user.role;
-  const isOfficer = ["loan_officer","treasurer","secretary","president","superadmin"].includes(role);
+export default function LoanDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const session = getSession();
+  const role = session?.role ?? "";
+  const isOfficer = ["loan_officer", "treasurer", "secretary", "president", "superadmin"].includes(role);
 
-  const application = await prisma.loanApplication.findUnique({
-    where: { id },
-    include: {
-      member: { select: { id: true, firstName: true, lastName: true, memberNumber: true } },
-      product: true,
-      guarantors: { include: { guarantor: { select: { firstName: true, lastName: true, memberNumber: true } } } },
-      loan: {
-        include: {
-          schedule: { orderBy: { installmentNumber: "asc" } },
-          repayments: { orderBy: { paymentDate: "desc" }, take: 10 },
-        },
+  const [detail, setDetail] = useState<DetailData | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    localDb.init();
+    const app = localDb.loanApplications.findUnique(id);
+    if (!app) { setNotFound(true); return; }
+
+    if (!isOfficer && app.memberId !== session?.memberId) {
+      router.replace("/dashboard");
+      return;
+    }
+
+    const product = localDb.loanProducts.findUnique(app.loanProductId);
+    if (!product) { setNotFound(true); return; }
+
+    const member = localDb.members.findUnique(app.memberId);
+
+    let loan: (LocalLoan & { schedule: LocalLoanSchedule[]; repayments: LocalRepayment[] }) | null = null;
+    const rawLoan = localDb.loans.findFirst({ applicationId: id } as never);
+    if (rawLoan) {
+      const schedule = localDb.loanSchedule.findMany({ loanId: rawLoan.id } as never)
+        .sort((a, b) => a.installmentNumber - b.installmentNumber);
+      const repayments = localDb.repayments.findMany({ loanId: rawLoan.id } as never)
+        .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime())
+        .slice(0, 10);
+      loan = { ...rawLoan, schedule, repayments };
+    }
+
+    setDetail({
+      app: {
+        ...app,
+        memberName: member ? `${member.firstName} ${member.lastName}` : "Unknown",
+        memberNumber: member?.memberNumber ?? "",
       },
-    },
-  });
+      product,
+      loan,
+    });
+  }, [id, isOfficer, session?.memberId, router, refreshKey]);
 
-  if (!application) notFound();
+  const refresh = () => setRefreshKey(k => k + 1);
 
-  // Access control
-  if (!isOfficer && application.memberId !== session.user.memberId) redirect("/dashboard");
+  if (notFound) return <div className="text-gray-500 p-6">Loan application not found.</div>;
+  if (!detail) return <div className="p-6 text-gray-400">Loading…</div>;
 
-  const loan = application.loan;
+  const { app, product, loan } = detail;
 
   return (
     <div>
@@ -48,29 +91,28 @@ export default async function LoanDetailPage({
       </div>
 
       <PageHeader
-        title={`Loan ${application.applicationNumber}`}
-        description={`${application.product.name} · ${application.member.firstName} ${application.member.lastName}`}
-        action={<StatusBadge status={application.status} />}
+        title={`Loan ${app.applicationNumber}`}
+        description={`${product.name} · ${app.memberName}`}
+        action={<StatusBadge status={app.status} />}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          {/* Application details */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="font-semibold text-gray-700 mb-4">Application Details</h3>
             <dl className="grid grid-cols-2 gap-3 text-sm">
-              {[
-                ["Member", `${application.member.firstName} ${application.member.lastName} (${application.member.memberNumber})`],
-                ["Product", application.product.name],
-                ["Requested", formatNGN(application.requestedAmountKobo)],
-                ["Approved", application.approvedAmountKobo ? formatNGN(application.approvedAmountKobo) : "—"],
-                ["Tenure", `${application.tenureMonths} months`],
-                ["Interest Type", application.product.interestType.replace("_"," ")],
-                ["Interest Rate", `${application.product.interestRatePct}% p.a.`],
-                ["Processing Fee", `${application.product.processingFeePct}%`],
-                ["Purpose", application.purpose],
-                ["Submitted", application.submittedAt ? new Date(application.submittedAt).toLocaleDateString("en-NG") : "—"],
-              ].map(([k,v]) => (
+              {([
+                ["Member", `${app.memberName} (${app.memberNumber})`],
+                ["Product", product.name],
+                ["Requested", formatNGN(app.requestedAmountKobo)],
+                ["Approved", app.approvedAmountKobo != null ? formatNGN(app.approvedAmountKobo) : "—"],
+                ["Tenure", `${app.tenureMonths} months`],
+                ["Interest Type", product.interestType.replace("_", " ")],
+                ["Interest Rate", `${product.interestRatePct}% p.a.`],
+                ["Processing Fee", `${product.processingFeePct}%`],
+                ["Purpose", app.purpose],
+                ["Submitted", app.submittedAt ? new Date(app.submittedAt).toLocaleDateString("en-NG") : "—"],
+              ] as [string, string][]).map(([k, v]) => (
                 <div key={k}>
                   <dt className="text-xs text-gray-400 uppercase tracking-wide">{k}</dt>
                   <dd className="font-medium text-gray-700 mt-0.5 break-words">{v}</dd>
@@ -79,22 +121,6 @@ export default async function LoanDetailPage({
             </dl>
           </div>
 
-          {/* Guarantors */}
-          {application.guarantors.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="font-semibold text-gray-700 mb-3">Guarantors</h3>
-              <div className="space-y-2">
-                {application.guarantors.map(g => (
-                  <div key={g.id} className="flex justify-between items-center text-sm">
-                    <span className="text-gray-700">{g.guarantor.firstName} {g.guarantor.lastName} <span className="text-gray-400 text-xs">({g.guarantor.memberNumber})</span></span>
-                    <StatusBadge status={g.status} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Repayment schedule */}
           {loan && (
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h3 className="font-semibold text-gray-700 mb-3">Repayment Schedule</h3>
@@ -102,7 +128,7 @@ export default async function LoanDetailPage({
                 <table className="min-w-full text-sm divide-y divide-gray-100">
                   <thead>
                     <tr className="text-xs text-gray-400 uppercase">
-                      {["#","Due Date","Principal","Interest","Total","Paid","Status"].map(h => <th key={h} className="py-2 pr-4 text-left font-semibold">{h}</th>)}
+                      {["#", "Due Date", "Principal", "Interest", "Total", "Paid", "Status"].map(h => <th key={h} className="py-2 pr-4 text-left font-semibold">{h}</th>)}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -123,7 +149,6 @@ export default async function LoanDetailPage({
             </div>
           )}
 
-          {/* Repayment history */}
           {loan && loan.repayments.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h3 className="font-semibold text-gray-700 mb-3">Payment History</h3>
@@ -132,7 +157,7 @@ export default async function LoanDetailPage({
                   <div key={r.id} className="flex justify-between text-sm">
                     <div>
                       <span className="text-gray-700 font-medium">{formatNGN(r.amountKobo)}</span>
-                      <span className="text-gray-400 ml-2 text-xs">{r.paymentMethod.replace(/_/g," ")}</span>
+                      <span className="text-gray-400 ml-2 text-xs">{r.paymentMethod.replace(/_/g, " ")}</span>
                     </div>
                     <span className="text-gray-400 text-xs">{new Date(r.paymentDate).toLocaleDateString("en-NG")} · {r.referenceNumber}</span>
                   </div>
@@ -142,7 +167,6 @@ export default async function LoanDetailPage({
           )}
         </div>
 
-        {/* Right panel */}
         <div className="space-y-4">
           {loan && (
             <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -165,25 +189,11 @@ export default async function LoanDetailPage({
             </div>
           )}
 
-          {/* Officer actions */}
           {isOfficer && (
-            <LoanActions application={{ id: application.id, status: application.status }} role={role} />
+            <LoanActions application={{ id: app.id, status: app.status }} role={role} onRefresh={refresh} />
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Row({ label, value, className, bold, extra }: {
-  label: string; value: string; className?: string; bold?: boolean; extra?: React.ReactNode;
-}) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-gray-500">{label}</span>
-      <span className={`${bold ? "font-bold" : "font-medium"} ${className ?? "text-gray-800"}`}>
-        {extra ?? value}
-      </span>
     </div>
   );
 }

@@ -1,56 +1,54 @@
-import { auth } from "@/lib/auth";
-import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { getSession } from "@/lib/auth-local";
+import { localDb, type LocalMember } from "@/lib/local-db";
+import { formatNGN } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { formatNGN } from "@/lib/utils";
 import Link from "next/link";
 
-export default async function MembersPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ search?: string; status?: string; page?: string }>;
-}) {
-  const session = await auth();
-  if (!session) redirect("/login");
-  const role = session.user.role;
-  if (!["loan_officer","treasurer","secretary","president","superadmin"].includes(role)) {
-    redirect("/dashboard");
-  }
-
-  const sp = await searchParams;
-  const search = sp.search ?? "";
-  const status = sp.status ?? "";
-  const page = Math.max(1, parseInt(sp.page ?? "1"));
+export default function MembersPage() {
+  const session = getSession();
+  const role = session?.role ?? "";
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const search = searchParams.get("search") ?? "";
+  const status = searchParams.get("status") ?? "";
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
   const limit = 20;
 
-  const where = {
-    deletedAt: null,
-    ...(status ? { status: status as never } : {}),
-    ...(search ? {
-      OR: [
-        { firstName: { contains: search, mode: "insensitive" as const } },
-        { lastName: { contains: search, mode: "insensitive" as const } },
-        { memberNumber: { contains: search, mode: "insensitive" as const } },
-        { phone: { contains: search } },
-        { email: { contains: search, mode: "insensitive" as const } },
-      ],
-    } : {}),
-  };
+  const [members, setMembers] = useState<(LocalMember & { savingsBalance?: number })[]>([]);
+  const [total, setTotal] = useState(0);
 
-  const [members, total] = await Promise.all([
-    prisma.member.findMany({
-      where,
-      skip: (page - 1) * limit,
-      take: limit,
-      orderBy: { createdAt: "desc" },
-      include: { savingsAccount: { select: { balanceKobo: true } } },
-    }),
-    prisma.member.count({ where }),
-  ]);
+  const canCreate = ["treasurer", "secretary", "president", "superadmin"].includes(role);
+
+  const load = useCallback(() => {
+    localDb.init();
+    const { items, total: t } = localDb.members.findManyFiltered({ search, status, page, limit });
+    const accounts = localDb.savingsAccounts.all();
+    const enriched = items.map((m) => {
+      const acc = accounts.find((a) => a.memberId === m.id);
+      return { ...m, savingsBalance: acc?.balanceKobo };
+    });
+    setMembers(enriched);
+    setTotal(t);
+  }, [search, status, page]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const totalPages = Math.ceil(total / limit);
-  const canCreate = ["treasurer","secretary","president","superadmin"].includes(role);
+
+  function handleSearch(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const s = fd.get("search") as string;
+    const st = fd.get("status") as string;
+    router.push(`?search=${encodeURIComponent(s)}&status=${encodeURIComponent(st)}&page=1`);
+  }
 
   return (
     <div>
@@ -69,8 +67,7 @@ export default async function MembersPage({
         }
       />
 
-      {/* Filters */}
-      <form method="GET" className="flex gap-3 mb-5 flex-wrap">
+      <form onSubmit={handleSearch} className="flex gap-3 mb-5 flex-wrap">
         <input
           name="search"
           defaultValue={search}
@@ -98,12 +95,11 @@ export default async function MembersPage({
         )}
       </form>
 
-      {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50">
             <tr>
-              {["Member ID","Name","Phone","Status","Savings Balance","Joined",""].map((h) => (
+              {["Member ID", "Name", "Phone", "Status", "Savings Balance", "Joined", ""].map((h) => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
               ))}
             </tr>
@@ -121,7 +117,7 @@ export default async function MembersPage({
                 <td className="px-4 py-3 text-gray-600">{m.phone}</td>
                 <td className="px-4 py-3"><StatusBadge status={m.status} /></td>
                 <td className="px-4 py-3 text-gray-700">
-                  {m.savingsAccount ? formatNGN(m.savingsAccount.balanceKobo) : "—"}
+                  {m.savingsBalance != null ? formatNGN(m.savingsBalance) : "—"}
                 </td>
                 <td className="px-4 py-3 text-gray-500 text-xs">
                   {m.membershipDate ? new Date(m.membershipDate).toLocaleDateString("en-NG") : "—"}
@@ -137,7 +133,6 @@ export default async function MembersPage({
         </table>
       </div>
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4 text-sm text-gray-600">
           <span>Page {page} of {totalPages} ({total} total)</span>

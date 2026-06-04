@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { login } from "@/lib/auth-local";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -17,14 +17,9 @@ export default function LoginPage() {
     const email = (form.elements.namedItem("email") as HTMLInputElement).value;
     const password = (form.elements.namedItem("password") as HTMLInputElement).value;
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
-
+    const session = login(email, password);
     setLoading(false);
-    if (result?.error) {
+    if (!session) {
       setError("Invalid email or password.");
     } else {
       router.push("/dashboard");
@@ -48,7 +43,7 @@ export default function LoginPage() {
               type="email"
               required
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-              placeholder="you@example.com"
+              placeholder="admin@cooperative.ng"
             />
           </div>
           <div>
@@ -74,10 +69,8 @@ export default function LoginPage() {
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <p className="text-center text-sm text-gray-500 mt-4">
-          <a href="/forgot-password" className="text-green-600 hover:underline">
-            Forgot password?
-          </a>
+        <p className="text-center text-xs text-gray-400 mt-6">
+          Demo credentials: admin@cooperative.ng / Admin@1234
         </p>
       </div>
     </div>

@@ -4,26 +4,22 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { FormField, Input, Select, Textarea, Button } from "@/components/shared/FormField";
+import { getSession } from "@/lib/auth-local";
+import { localDb, type LocalLoanProduct } from "@/lib/local-db";
 import { calculateFlatRate, calculateReducingBalance } from "@/lib/financial/loan-calculator";
-
-interface Product {
-  id: string; name: string; description: string | null;
-  minAmountKobo: string; maxAmountKobo: string;
-  interestRatePct: string; interestType: string;
-  maxTenureMonths: number; minTenureMonths: number;
-  processingFeePct: string; guarantorsRequired: number;
-}
 
 export default function LoanApplyPage() {
   const router = useRouter();
-  const [products, setProducts] = useState<Product[]>([]);
+  const session = getSession();
+  const [products, setProducts] = useState<LocalLoanProduct[]>([]);
   const [form, setForm] = useState({ loanProductId: "", requestedAmountNaira: "", tenureMonths: "", purpose: "" });
   const [preview, setPreview] = useState<{ monthly: string; total: string; interest: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/loans/products").then(r => r.json()).then(d => setProducts(d.products ?? []));
+    localDb.init();
+    setProducts(localDb.loanProducts.findMany({ isActive: true } as never));
   }, []);
 
   const selectedProduct = products.find(p => p.id === form.loanProductId);
@@ -37,8 +33,8 @@ export default function LoanApplyPage() {
     if (!amountKobo || !tenure) return;
     try {
       const calc = selectedProduct.interestType === "flat"
-        ? calculateFlatRate(amountKobo, parseFloat(selectedProduct.interestRatePct), tenure, new Date(), parseFloat(selectedProduct.processingFeePct))
-        : calculateReducingBalance(amountKobo, parseFloat(selectedProduct.interestRatePct), tenure, new Date(), parseFloat(selectedProduct.processingFeePct));
+        ? calculateFlatRate(amountKobo, selectedProduct.interestRatePct, tenure, new Date(), selectedProduct.processingFeePct)
+        : calculateReducingBalance(amountKobo, selectedProduct.interestRatePct, tenure, new Date(), selectedProduct.processingFeePct);
       setPreview({
         monthly: (Number(calc.monthlyInstallmentKobo) / 100).toLocaleString("en-NG", { style: "currency", currency: "NGN" }),
         total: (Number(calc.totalPayableKobo) / 100).toLocaleString("en-NG", { style: "currency", currency: "NGN" }),
@@ -47,25 +43,22 @@ export default function LoanApplyPage() {
     } catch { setPreview(null); }
   }, [form.requestedAmountNaira, form.tenureMonths, selectedProduct]);
 
-  async function submit() {
+  function submit() {
+    if (!session?.memberId) { setError("No member profile linked."); return; }
     setLoading(true); setError("");
     try {
-      const r = await fetch("/api/loans/applications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          loanProductId: form.loanProductId,
-          requestedAmountKobo: Math.round(parseFloat(form.requestedAmountNaira) * 100),
-          tenureMonths: parseInt(form.tenureMonths),
-          purpose: form.purpose,
-        }),
+      const app = localDb.loanApplications.createApplication({
+        memberId: session.memberId,
+        loanProductId: form.loanProductId,
+        requestedAmountKobo: Math.round(parseFloat(form.requestedAmountNaira) * 100),
+        tenureMonths: parseInt(form.tenureMonths),
+        purpose: form.purpose,
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error?.formErrors?.[0] ?? d.error ?? "Submission failed");
-      router.push(`/dashboard/loans/${d.application.id}`);
+      router.push(`/dashboard/loans/${app.id}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error occurred");
-    } finally { setLoading(false); }
+      setLoading(false);
+    }
   }
 
   return (
@@ -74,7 +67,7 @@ export default function LoanApplyPage() {
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
         <FormField label="Loan Product" required>
-          <Select value={form.loanProductId} onChange={e => setForm(f => ({...f, loanProductId: e.target.value}))}>
+          <Select value={form.loanProductId} onChange={e => setForm(f => ({ ...f, loanProductId: e.target.value }))}>
             <option value="">Select a loan product…</option>
             {products.map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
@@ -83,8 +76,8 @@ export default function LoanApplyPage() {
           {selectedProduct && (
             <div className="mt-2 bg-blue-50 rounded-lg p-3 text-xs text-blue-800 space-y-1">
               <p>{selectedProduct.description}</p>
-              <p>Range: ₦{(Number(selectedProduct.minAmountKobo)/100).toLocaleString()} – ₦{(Number(selectedProduct.maxAmountKobo)/100).toLocaleString()}</p>
-              <p>Rate: {selectedProduct.interestRatePct}% per annum ({selectedProduct.interestType.replace("_"," ")})</p>
+              <p>Range: ₦{(selectedProduct.minAmountKobo / 100).toLocaleString()} – ₦{(selectedProduct.maxAmountKobo / 100).toLocaleString()}</p>
+              <p>Rate: {selectedProduct.interestRatePct}% per annum ({selectedProduct.interestType.replace("_", " ")})</p>
               <p>Tenure: {selectedProduct.minTenureMonths}–{selectedProduct.maxTenureMonths} months · Guarantors required: {selectedProduct.guarantorsRequired}</p>
             </div>
           )}
@@ -94,20 +87,19 @@ export default function LoanApplyPage() {
           <FormField label="Amount Requested (₦)" required>
             <Input type="number" step="1000" min="0"
               value={form.requestedAmountNaira}
-              onChange={e => setForm(f => ({...f, requestedAmountNaira: e.target.value}))}
+              onChange={e => setForm(f => ({ ...f, requestedAmountNaira: e.target.value }))}
               placeholder="50000"
             />
           </FormField>
           <FormField label="Tenure (months)" required>
             <Input type="number" min="1"
               value={form.tenureMonths}
-              onChange={e => setForm(f => ({...f, tenureMonths: e.target.value}))}
+              onChange={e => setForm(f => ({ ...f, tenureMonths: e.target.value }))}
               placeholder={selectedProduct ? String(selectedProduct.maxTenureMonths) : "12"}
             />
           </FormField>
         </div>
 
-        {/* Repayment preview */}
         {preview && (
           <div className="bg-green-50 rounded-xl p-4 grid grid-cols-3 gap-3 text-center">
             <div>
@@ -128,8 +120,8 @@ export default function LoanApplyPage() {
         <FormField label="Purpose of Loan" required>
           <Textarea
             value={form.purpose}
-            onChange={e => setForm(f => ({...f, purpose: e.target.value}))}
-            placeholder="Describe what the loan will be used for (minimum 10 characters)…"
+            onChange={e => setForm(f => ({ ...f, purpose: e.target.value }))}
+            placeholder="Describe what the loan will be used for…"
             rows={3}
           />
         </FormField>

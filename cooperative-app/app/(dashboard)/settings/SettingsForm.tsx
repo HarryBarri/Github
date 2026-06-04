@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { localDb } from "@/lib/local-db";
 import { FormField, Input, Button } from "@/components/shared/FormField";
 
 const SETTINGS_META: Record<string, { label: string; description: string; type?: string }> = {
@@ -17,15 +18,10 @@ export function SettingsForm({ settings }: { settings: Record<string, string> })
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
-  async function save() {
+  function save() {
     setSaving(true); setMessage("");
     try {
-      const r = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!r.ok) throw new Error("Save failed");
+      localDb.settings.setMany(form);
       setMessage("Settings saved successfully.");
     } catch {
       setMessage("Failed to save settings.");
