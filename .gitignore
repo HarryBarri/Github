@@ -3,3 +3,4 @@ data/waitlist.json
 *.log
 .DS_Store
 .env
+.vercel
